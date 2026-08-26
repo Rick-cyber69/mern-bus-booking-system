@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # 1. MongoDB Container (Transactional Database)
+  mongodb:
+    image: mongo:7.0
+    container_name: bus_booking_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - bus_net
+
+  # 2. Redis Container (Atomic Seat Lock Store)
+  redis:
+    image: redis:7-alpine
+    container_name: bus_booking_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - bus_net
+
+  # 3. Node.js Express API Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: bus_booking_backend
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - MONGO_URI=mongodb://mongodb:27017/bus_booking_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=super_secret_production_jwt_key_2026_antigravity
+      - CLIENT_URL=http://localhost
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - bus_net
+
+  # 4. Nginx + React Frontend Static Web Container
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: bus_booking_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - bus_net
+
+networks:
+  bus_net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  redis_data:
