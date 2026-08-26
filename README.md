@@ -83,7 +83,7 @@ graph TD
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/veloxbus.git
+git clone https://github.com/Rick-cyber69/mern-bus-booking-system.git
 cd veloxbus
 
 # 1. Install Backend Dependencies
