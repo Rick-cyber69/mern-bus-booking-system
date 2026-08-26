@@ -13,8 +13,14 @@ dotenv.config();
 
 const app = express();
 
-// Enable CORS & Body Parsing
-app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
+// Enable Dynamic CORS (Allows local dev + any production Render URL)
+app.use(cors({
+  origin: true, // Echoes the request origin to allow credentials
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
