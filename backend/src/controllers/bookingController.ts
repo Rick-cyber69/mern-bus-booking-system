@@ -2,11 +2,13 @@ import { Response } from 'express';
 import { Booking, PaymentStatus, BookingStatus } from '../models/Booking';
 import { Schedule } from '../models/Schedule';
 import { Bus } from '../models/Bus';
+import { User } from '../models/User';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { lockSeats, unlockSeats } from '../services/redisService';
 import { generateQRCode } from '../services/qrService';
 import { generatePDFTicket } from '../services/pdfService';
 import { getIO } from '../services/socketService';
+import { sendTicketEmail } from '../services/emailService';
 
 const generatePNR = (): string => {
   return 'BUS' + Math.floor(10000000 + Math.random() * 90000000).toString();
@@ -131,6 +133,56 @@ export const confirmBooking = async (req: AuthRequest, res: Response) => {
         seatNumbers: requestedSeats
       });
     } catch {}
+
+    // Fire-and-forget: Send PDF ticket email to passenger (non-blocking)
+    (async () => {
+      try {
+        const user = await User.findById(userId).select('name email');
+        if (!user?.email) return;
+
+        const populatedSchedule = await Schedule.findById(scheduleId).populate({
+          path: 'busId',
+          populate: { path: 'operatorId', select: 'operatorName' }
+        }).populate('routeId');
+
+        const sched: any = populatedSchedule;
+        const bus: any = sched?.busId;
+        const route: any = sched?.routeId;
+
+        const bookingDataForPdf = {
+          pnr,
+          origin: route?.originCity || 'N/A',
+          destination: route?.destinationCity || 'N/A',
+          operatorName: bus?.operatorId?.operatorName || 'Express Bus System',
+          busType: bus?.busType || 'AC Sleeper',
+          departureTime: sched?.departureTime || new Date(),
+          seatNumbers: requestedSeats,
+          totalAmount,
+          bookingStatus: BookingStatus.CONFIRMED,
+          passengers
+        };
+
+        const pdfBuffer = await generatePDFTicket(bookingDataForPdf, qrCodeData);
+
+        await sendTicketEmail(
+          {
+            recipientEmail: user.email,
+            recipientName: user.name,
+            pnr,
+            origin: route?.originCity || 'N/A',
+            destination: route?.destinationCity || 'N/A',
+            departureTime: sched?.departureTime || new Date(),
+            seatNumbers: requestedSeats,
+            totalAmount,
+            operatorName: bus?.operatorId?.operatorName || 'Express Bus System',
+            busType: bus?.busType || 'AC Sleeper'
+          },
+          pdfBuffer
+        );
+      } catch (emailErr: any) {
+        console.error('[Email] Background dispatch error:', emailErr.message);
+      }
+    })();
 
     res.status(201).json({
       success: true,
