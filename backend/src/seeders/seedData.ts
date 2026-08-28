@@ -60,6 +60,20 @@ const generateSeatLayout = (busType: BusType): ISeatConfig[] => {
 export const runDatabaseSeed = async () => {
   console.log('[Seed] Starting database seeding process...');
 
+  try {
+    // Ensure clean state by dropping any existing collections
+    if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+      const collections = await mongoose.connection.db.listCollections().toArray();
+      for (const col of collections) {
+        try {
+          await mongoose.connection.db.dropCollection(col.name);
+        } catch {}
+      }
+    }
+  } catch (err) {
+    console.log('[Seed] Note during collection reset:', err);
+  }
+
   await User.deleteMany({});
   await Bus.deleteMany({});
   await Route.deleteMany({});
