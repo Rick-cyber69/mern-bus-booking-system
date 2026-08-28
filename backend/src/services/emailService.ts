@@ -1,24 +1,14 @@
-import nodemailer from 'nodemailer';
-
 /**
  * Email Service — Automated PDF Ticket Dispatch
  * 
- * Uses Gmail SMTP with App Password authentication.
- * Gracefully skips if EMAIL_USER / EMAIL_PASS are not configured.
+ * Uses Resend HTTP API (works on Render free tier — no SMTP required).
+ * Gracefully skips if RESEND_API_KEY is not configured.
+ * 
+ * Free tier: 100 emails/day — https://resend.com
  */
 
 const isEmailConfigured = (): boolean => {
-  return !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
-};
-
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+  return !!process.env.RESEND_API_KEY;
 };
 
 interface TicketEmailData {
@@ -45,13 +35,11 @@ export const sendTicketEmail = async (
 ): Promise<void> => {
   // Graceful skip if email is not configured
   if (!isEmailConfigured()) {
-    console.log('[Email] Skipped — EMAIL_USER / EMAIL_PASS not configured in environment');
+    console.log('[Email] Skipped — RESEND_API_KEY not configured in environment');
     return;
   }
 
   try {
-    const transporter = createTransporter();
-
     const departureDate = new Date(emailData.departureTime);
     const formattedDate = departureDate.toLocaleDateString('en-IN', {
       weekday: 'long',
@@ -188,21 +176,34 @@ export const sendTicketEmail = async (
 </body>
 </html>`;
 
-    const mailOptions = {
-      from: `"VeloxBus Tickets" <${process.env.EMAIL_USER}>`,
-      to: emailData.recipientEmail,
-      subject: `✅ Booking Confirmed — ${emailData.origin} → ${emailData.destination} | PNR: ${emailData.pnr}`,
-      html: htmlBody,
-      attachments: [
-        {
-          filename: `Ticket-${emailData.pnr}.pdf`,
-          content: pdfBuffer,
-          contentType: 'application/pdf'
-        }
-      ]
-    };
+    // Convert PDF buffer to base64 for Resend API
+    const pdfBase64 = pdfBuffer.toString('base64');
 
-    await transporter.sendMail(mailOptions);
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM || 'VeloxBus Tickets <onboarding@resend.dev>',
+        to: [emailData.recipientEmail],
+        subject: `✅ Booking Confirmed — ${emailData.origin} → ${emailData.destination} | PNR: ${emailData.pnr}`,
+        html: htmlBody,
+        attachments: [
+          {
+            filename: `Ticket-${emailData.pnr}.pdf`,
+            content: pdfBase64
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Resend API error (${response.status}): ${errorBody}`);
+    }
+
     console.log(`[Email] ✅ Ticket emailed to ${emailData.recipientEmail} for PNR ${emailData.pnr}`);
   } catch (error: any) {
     // Non-fatal: log and continue — booking is already confirmed
